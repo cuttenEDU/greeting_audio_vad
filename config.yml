@@ -1,0 +1,14 @@
+window_duration: 1.7
+sample_rate: 16000
+
+
+n_fft: 480
+win_length: 480
+hop_length: 160
+n_mels: 40
+
+certainty_thresh: 0.73
+certainty_detects: 3
+certainty_window: 0
+
+vad_release: 10

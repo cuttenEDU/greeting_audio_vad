@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS Badges(
+  BadgeID TEXT PRIMARY KEY ,
+  DateAdded INTEGER,
+  Activations INTEGER DEFAULT 0,
+  Enabled INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS Wakewords(
+    ID INTEGER PRIMARY KEY ,
+    WORD TEXT
+);
+
+CREATE TABLE IF NOT EXISTS Activations(
+  BadgeID TEXT,
+  DateTimeActivated INTEGER,
+  WakewordID INTEGER ,
+  Duartion REAL DEFAULT 0,
+  FOREIGN KEY(BadgeID) REFERENCES Badges(BadgeID),
+  FOREIGN KEY(WakewordID) REFERENCES Wakewords(ID)
+);
+
