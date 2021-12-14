@@ -12,3 +12,5 @@ certainty_detects: 3
 certainty_window: 0
 
 vad_release: 10
+
+model_path: "weights/happy98/model.pt"
