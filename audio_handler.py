@@ -1,4 +1,4 @@
-from database import BadgesDB
+from database import BadgesDB,Wakeword
 from vad import is_voice
 from model import BCResNet
 
@@ -7,11 +7,8 @@ import torchaudio
 import torch
 
 
-
-
-
-class BadgeAudioHandler():
-    def __init__(self,db:BadgesDB,badge_id:str,config,model:BCResNet,device:torch.device):
+class BadgeAudioHandler:
+    def __init__(self, db: BadgesDB, badge_id: str, config, model: BCResNet, device: torch.device):
         self.db = db
         self.id = badge_id
         self.config = config
@@ -25,50 +22,46 @@ class BadgeAudioHandler():
 
         self.recording = False
 
-        self.window = np.zeros(config.window_duration)
+        self.window = np.zeros(config.window_duration,dtype=np.int16)
 
         self.recording_buffer = b""
 
         self.model = model
         self.device = device
         self.spectrogrammer = torch.nn.Sequential(
-        torchaudio.transforms.MelSpectrogram(
-            sample_rate=config.sample_rate,
-            n_fft=config.n_fft,
-            win_length=config.win_length,
-            hop_length=config.hop_length,
-            center=True,
-            pad_mode="reflect",
-            power=2.0,
-            norm='slaney',
-            onesided=True,
-            n_mels=config.n_mels,
-            mel_scale="htk",
+            torchaudio.transforms.MelSpectrogram(
+                sample_rate=config.sample_rate,
+                n_fft=config.n_fft,
+                win_length=config.win_length,
+                hop_length=config.hop_length,
+                center=True,
+                pad_mode="reflect",
+                power=2.0,
+                norm='slaney',
+                onesided=True,
+                n_mels=config.n_mels,
+                mel_scale="htk",
+            )
+
         )
 
-    )
-
-    def process_audiofragment(self,fragment:bytes):
+    def process_audiofragment(self, fragment: bytes):
         i = 0
         while i < len(fragment):
-            chunk = fragment[i:i+self.chunk_size]
+            chunk = fragment[i:i + self.chunk_size]
 
             self._roll_window(chunk)
 
-
-            self.samples_since_vad += chunk
+            self.samples_since_vad += len(chunk)
 
             if self.recording:
-                self.recording_buffer += chunk
+                self._append_rec_buffer(chunk)
                 if self.samples_since_vad > self.vad_release_samples:
                     self._finish_recording()
-
 
             if is_voice(self.window.tobytes(), self.config.sample_rate):
 
                 self.samples_since_vad = 0
-
-
 
                 result = self._infer_window()
 
@@ -93,11 +86,13 @@ class BadgeAudioHandler():
 
             i += chunk
 
-    def _roll_window(self,chunk):
+    def _roll_window(self, chunk):
         chunk_len = len(chunk)
-        indata = np.frombuffer(chunk, np.int16)
         self.window = np.roll(self.window, -chunk_len, 0)
-        self.window[-chunk_len:] = indata
+        self.window[-chunk_len:] = chunk
+
+    def _append_rec_buffer(self,arr_slice):
+        self.recording_buffer += arr_slice.to_bytes()
 
     def _infer_window(self):
         torchdata = torch.from_numpy(self.window).float()
@@ -111,3 +106,12 @@ class BadgeAudioHandler():
         # TODO: recording transmission
         self.recording = False
         self.recording_buffer = b""
+        duration = (len(self.recording_buffer)/2)/16000
+        self.db.register_activation(self.id,Wakeword.Здравствуйте,duration)
+
+
+
+    def __del__(self):
+        if len(self.recording_buffer) > 0:
+            self._finish_recording()
+
