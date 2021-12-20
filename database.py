@@ -16,6 +16,12 @@ class TableAlreadyExistsException(Exception):
 class BadgeNotFoundException(Exception):
     pass
 
+class BadgeAlreadyEnabled(Exception):
+    pass
+
+class BadgeAlreadyDisabled(Exception):
+    pass
+
 def retriable_query(function):
     def wrapper(*args, **kwargs):
         while True:
@@ -90,15 +96,38 @@ class BadgesDB():
 
     @retriable_query
     def enable_badge(self, badge_id: str):
-        badge_exists = self.cursor.execute("SELECT BadgeID FROM Badges WHERE BadgeID = ?",(badge_id,)).fetchall()
-        if badge_exists:
-            self.cursor.execute("UPDATE Badges SET Enabled = 1 WHERE BadgeID = ?", (badge_id,))
-            self.conn.commit()
+        if self.badge_exists(badge_id):
+            if not self.badge_enabled(badge_id):
+                self.cursor.execute("UPDATE Badges SET Enabled = 1 WHERE BadgeID = ?", (badge_id,))
+                self.conn.commit()
+            else:
+                raise BadgeAlreadyEnabled(f"Badge {badge_id} already enabled!")
         else:
             raise BadgeNotFoundException(f"Badge {badge_id} does not exist")
 
     @retriable_query
     def disable_badge(self, badge_id: str):
-        self.cursor.execute("UPDATE Badges SET Enabled = 0 WHERE BadgeID = ?", (badge_id,))
-        self.conn.commit()
-        logging.debug(f"Registered disabled state on badge {badge_id} in the database")
+        if self.badge_exists(badge_id):
+            if self.badge_enabled(badge_id):
+                self.cursor.execute("UPDATE Badges SET Enabled = 0 WHERE BadgeID = ?", (badge_id,))
+                self.conn.commit()
+            else:
+                raise BadgeAlreadyDisabled(f"Badge {badge_id} already disabled!")
+        else:
+            raise BadgeNotFoundException(f"Badge {badge_id} does not exist")
+
+    @retriable_query
+    def badge_enabled(self,badge_id: str):
+        if self.badge_exists(badge_id):
+            res = self.cursor.execute("SELECT Enabled FROM Badges WHERE BadgeID = ?",(badge_id,)).fetchone()
+            return res[0]
+        else:
+            raise BadgeNotFoundException(f"Badge {badge_id} does not exist")
+
+    @retriable_query
+    def badge_exists(self, badge_id: str):
+        badge_exists = self.cursor.execute("SELECT BadgeID FROM Badges WHERE BadgeID = ?",(badge_id,)).fetchall()
+        if badge_exists:
+            return True
+        else:
+            return False

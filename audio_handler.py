@@ -22,7 +22,7 @@ class BadgeAudioHandler:
 
         self.recording = False
 
-        self.window = np.zeros(config.window_duration,dtype=np.int16)
+        self.window = np.zeros(int(config.window_duration*config.sample_rate),dtype=np.int16)
 
         self.recording_buffer = b""
 

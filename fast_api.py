@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
+import uvicorn
 import torchaudio
 import torch
 
@@ -25,8 +26,8 @@ def main(fragments_queue: Queue, active_badges: dict):
     date_strftime_format = "%d-%b-%y %H:%M:%S"
     message_format = "%(asctime)s | %(levelname)s | %(module)s.py: %(message)s"
     logging.basicConfig(format=message_format, datefmt=date_strftime_format, level=logging.DEBUG)
-    logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
-    logging.getLogger("fastapi").setLevel(logging.CRITICAL)
+    # logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
+    # logging.getLogger("fastapi").setLevel(logging.CRITICAL)
 
     # DB Init
     db = database.BadgesDB("tables.db")
@@ -45,8 +46,8 @@ def main(fragments_queue: Queue, active_badges: dict):
     class BadgeInfo(BaseModel):
         BadgeID: str = ""
 
-    @app.post("/activate", status_code=202)
-    async def activate_badge(badge: BadgeInfo):
+    @app.post("/enable", status_code=201)
+    async def enable_badge(badge: BadgeInfo):
         try:
             db.enable_badge(badge.BadgeID)
             if badge.BadgeID not in active_badges:
@@ -55,9 +56,36 @@ def main(fragments_queue: Queue, active_badges: dict):
             return {"status": "success"}
         except database.BadgeNotFoundException:
             raise HTTPException(status_code=404, detail=f'Badge "{badge.BadgeID}" is not registered')
+        except database.BadgeAlreadyEnabled:
+            raise HTTPException(status_code=304, detail=f'Badge "{badge.BadgeID} is already enabled')
 
-    @app.get("/upload")
-    async def fragment_upload(badge: BadgeInfo, file: UploadFile = File(...)):
-        wav, sr = torchaudio.load(file).numpy()
-        assert sr == 16000
-        fragments_queue.put((badge.BadgeID, wav))
+    @app.post("/disable", status_code=201)
+    async def disable_badge(badge: BadgeInfo):
+        try:
+            db.disable_badge(badge.BadgeID)
+            if badge.BadgeID in active_badges:
+                del active_badges[badge.BadgeID]
+            logging.debug(f"Registered disabled state on badge {badge.BadgeID} in the database")
+            return {"status": "success"}
+        except database.BadgeNotFoundException:
+            raise HTTPException(status_code=404, detail=f'Badge "{badge.BadgeID}" is not registered')
+        except database.BadgeAlreadyDisabled:
+            raise HTTPException(status_code=304, detail=f'Badge "{badge.BadgeID} is already disabled')
+
+    @app.post("/upload", status_code=202)
+    async def fragment_upload(BadgeID: str = Form(...), upload_file: UploadFile = File(...)):
+        if db.badge_exists(BadgeID):
+            file = upload_file.file
+            wav, sr = torchaudio.load(file)
+            wav = wav.numpy()
+            assert sr == 16000
+            logging.debug(f"Recieved fragment from badge {BadgeID}, duration: {round(wav.size/sr,2)}")
+            fragments_queue.put((BadgeID, wav))
+        else:
+            raise HTTPException(status_code=404, detail=f'Badge "{BadgeID}" is not registered')
+
+    @app.get("/ping")
+    async def pong():
+        return "pong"
+
+    uvicorn.run(app, host="127.0.0.1",port=8000,log_level="info")
