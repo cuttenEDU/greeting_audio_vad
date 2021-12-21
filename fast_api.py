@@ -4,42 +4,54 @@ import uvicorn
 import torchaudio
 import torch
 
+
+
 from multiprocessing import Queue
 import logging
+import os
+import time
 
 import database
 from audio_handler import BadgeAudioHandler
 from model import BCResNet
 from config import Config
 
-
-def main(fragments_queue: Queue, active_badges: dict):
-
-    # Config init
-    config_path = "config.yml"
-
-    config = Config(config_path)
-    print(f"Config loaded from path: {config_path}")
-    print(config)
-
-    # Logging init
-    date_strftime_format = "%d-%b-%y %H:%M:%S"
-    message_format = "%(asctime)s | %(levelname)s | %(module)s.py: %(message)s"
-    logging.basicConfig(format=message_format, datefmt=date_strftime_format, level=logging.DEBUG)
-    # logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
-    # logging.getLogger("fastapi").setLevel(logging.CRITICAL)
-
-    # DB Init
-    db = database.BadgesDB("tables.db")
-    db.init_db()
-
-    # NeuralNet init
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+def init_model(config: Config) -> (BCResNet, torch.device):
+    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cpu")
     model = BCResNet(2).to(device)
     model.eval()
     state_dict = torch.load(config.model_path, map_location=device)
     model.load_state_dict(state_dict)
+    return model, device
 
+
+def fill_active_badges(active_badges:dict, config: Config, db: database.BadgesDB, model: BCResNet, device: torch.device):
+    for badge_id in db.get_active_badges():
+        active_badges[badge_id] = BadgeAudioHandler(db, badge_id, config, model, device)
+
+
+def init_config():
+    # Config init
+    config_path = os.environ.get("CONFIG")
+    if config_path:
+        config = Config(config_path)
+        print(f"Config loaded: {config_path}")
+        print(config)
+        return config
+    raise ValueError("No config environment variable!")
+
+
+
+def main(fragments_queue: Queue, active_badges: dict):
+
+
+    config = init_config()
+    db = database.init_db(config)
+    model,device = init_model(config)
+    fill_active_badges(active_badges,config,db,model,device)
+
+    logging.debug(f"Active badges: {active_badges.keys()}")
     # FastAPI
     app = FastAPI()
 
@@ -76,10 +88,10 @@ def main(fragments_queue: Queue, active_badges: dict):
     async def fragment_upload(BadgeID: str = Form(...), upload_file: UploadFile = File(...)):
         if db.badge_exists(BadgeID):
             file = upload_file.file
-            wav, sr = torchaudio.load(file)
+            wav, sr = torchaudio.load(file,normalize=False)
             wav = wav.numpy()
-            assert sr == 16000
-            logging.debug(f"Recieved fragment from badge {BadgeID}, duration: {round(wav.size/sr,2)}")
+            assert sr == config.sample_rate
+            logging.debug(f"Recieved fragment from badge {BadgeID}, duration: {round(wav.size / sr, 2)}")
             fragments_queue.put((BadgeID, wav))
         else:
             raise HTTPException(status_code=404, detail=f'Badge "{BadgeID}" is not registered')
@@ -88,4 +100,5 @@ def main(fragments_queue: Queue, active_badges: dict):
     async def pong():
         return "pong"
 
-    uvicorn.run(app, host="127.0.0.1",port=8000,log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+

@@ -31,4 +31,4 @@ def vad_collector(sample_rate, frames):
 def is_voice(audiodata:bytes,rate:int):
     frames = frame_generator(10, audiodata, rate)
     frames = list(frames)
-    return vad_collector(rate, frames)
+    return vad_collector(rate,frames)

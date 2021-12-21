@@ -1,14 +1,25 @@
-from multiprocessing import Queue,Process
+import threading
+import queue
+import logging
 
 import fast_api
 import worker
+from utils import init_logging
 
+
+from dotenv import load_dotenv
 
 if __name__ == "__main__":
-    fragments_queue = Queue()
+    load_dotenv()
+
+    init_logging()
+
+    fragments_queue = queue.Queue()
     active_badges = {}
-    rest_api = Process(target=fast_api.main,args=(fragments_queue,active_badges))
-    nn_worker = Process(target=worker.process_badge_fragment,args=(fragments_queue,active_badges))
-    rest_api.start()
-    nn_worker.start()
+
+    fragments_consumer = threading.Thread(target=worker.process_badge_fragment,args=(fragments_queue,active_badges))
+
+    fragments_consumer.start()
+
+    fast_api.main(fragments_queue,active_badges)
 

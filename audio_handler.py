@@ -1,3 +1,5 @@
+import numpy
+
 from database import BadgesDB,Wakeword
 from vad import is_voice
 from model import BCResNet
@@ -6,19 +8,24 @@ import numpy as np
 import torchaudio
 import torch
 
+import logging
+
 
 class BadgeAudioHandler:
     def __init__(self, db: BadgesDB, badge_id: str, config, model: BCResNet, device: torch.device):
         self.db = db
         self.id = badge_id
         self.config = config
-        self.chunk_size = int((config.sample_rate * config.window_duration) // 5)
+        self.chunk_size = int((config.sample_rate * config.window_duration) // 10)
 
         self.detect_count = 0
         self.samples_since_vad = 0
+        self.samples_since_activation = 0
         self.neg_samples_since_detect = 0
 
+
         self.vad_release_samples = config.sample_rate * config.vad_release
+        self.activation_release_samples = config.sample_rate * 2
 
         self.recording = False
 
@@ -45,37 +52,45 @@ class BadgeAudioHandler:
 
         )
 
-    def process_audiofragment(self, fragment: bytes):
+    def process_audiofragment(self, fragment: numpy.ndarray):
         i = 0
-        while i < len(fragment):
+        fragment = fragment[0]
+        while i < fragment.size:
             chunk = fragment[i:i + self.chunk_size]
 
             self._roll_window(chunk)
 
-            self.samples_since_vad += len(chunk)
+            chunk_len = len(chunk)
+
+            self.samples_since_vad += chunk_len
+            self.samples_since_activation += chunk_len
 
             if self.recording:
                 self._append_rec_buffer(chunk)
                 if self.samples_since_vad > self.vad_release_samples:
                     self._finish_recording()
 
+            #logging.debug(f"Checking fragment at {i}, samples since VAD: {self.samples_since_vad}, release: {self.vad_release_samples}, recording: {self.recording}")
             if is_voice(self.window.tobytes(), self.config.sample_rate):
-
+                #logging.debug("Found voice")
                 self.samples_since_vad = 0
 
                 result = self._infer_window()
-
+                #logging.debug(f"Inferred to {result}")
                 if result > self.config.certainty_thresh:
 
                     if self.recording:
-                        self._finish_recording()
+                        if self.samples_since_activation > self.activation_release_samples:
+                            self._finish_recording()
 
                     self.detect_count += 1
 
                     if self.detect_count == 1:
                         self.recording_buffer = self.window.copy().tobytes()
                     elif self.detect_count == self.config.certainty_detects:
-                        self.recording = True
+                        self._start_recording()
+                    else:
+                        self._append_rec_buffer(chunk)
 
                 else:
                     if self.detect_count > 0:
@@ -84,7 +99,7 @@ class BadgeAudioHandler:
                         else:
                             self.neg_samples_since_detect = 0
 
-            i += chunk
+            i += self.chunk_size
 
     def _roll_window(self, chunk):
         chunk_len = len(chunk)
@@ -92,24 +107,32 @@ class BadgeAudioHandler:
         self.window[-chunk_len:] = chunk
 
     def _append_rec_buffer(self,arr_slice):
-        self.recording_buffer += arr_slice.to_bytes()
+        self.recording_buffer += arr_slice.tobytes()
 
     def _infer_window(self):
         torchdata = torch.from_numpy(self.window).float()
         spec = torch.log(self.spectrogrammer(torchdata) + 1e-8)
-
+        spec -= spec.max()
         spec = spec.reshape(1, 1, *tuple(spec.shape))
 
         return torch.sigmoid(self.model(spec.to(self.device)))[0].item()
 
+    def _start_recording(self):
+        self.recording = True
+        self.samples_since_activation = 0
+        logging.info(f"Found a keyword on badge {self.id}, started recording...")
+
     def _finish_recording(self):
         # TODO: recording transmission
-        self.recording = False
-        self.recording_buffer = b""
         duration = (len(self.recording_buffer)/2)/16000
-        self.db.register_activation(self.id,Wakeword.Здравствуйте,duration)
+        self.db.register_activation(self.id, Wakeword.Здравствуйте, duration)
+        logging.info(
+            f"Finished a recording on badge {self.id}, wakeword: {0}, duration of speech {duration}")
+        self._reset_recording()
 
-
+    def _reset_recording(self):
+        self.recording_buffer = b""
+        self.recording = False
 
     def __del__(self):
         if len(self.recording_buffer) > 0:

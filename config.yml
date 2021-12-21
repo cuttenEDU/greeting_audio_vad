@@ -7,10 +7,13 @@ win_length: 480
 hop_length: 160
 n_mels: 40
 
-certainty_thresh: 0.73
+certainty_thresh: 0.7
 certainty_detects: 3
 certainty_window: 0
 
-vad_release: 10
+vad_release: 5
 
 model_path: "weights/happy98/model.pt"
+
+db_host: "localhost"
+db_port: 5432
