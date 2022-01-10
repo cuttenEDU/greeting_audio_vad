@@ -17,3 +17,5 @@ model_path: "weights/happy98/model.pt"
 
 db_host: "localhost"
 db_port: 5432
+
+sr_url: 'http://127.0.0.1:8000/asrupload'

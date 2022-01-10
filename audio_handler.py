@@ -1,4 +1,6 @@
-import numpy
+import wave
+
+import urllib3.exceptions
 
 from database import BadgesDB,Wakeword
 from vad import is_voice
@@ -7,9 +9,12 @@ from model import BCResNet
 import numpy as np
 import torchaudio
 import torch
+import requests
 
+
+import tempfile
 import logging
-
+import traceback
 
 class BadgeAudioHandler:
     def __init__(self, db: BadgesDB, badge_id: str, config, model: BCResNet, device: torch.device):
@@ -52,7 +57,7 @@ class BadgeAudioHandler:
 
         )
 
-    def process_audiofragment(self, fragment: numpy.ndarray):
+    def process_audiofragment(self, fragment: np.ndarray):
         i = 0
         fragment = fragment[0]
         while i < fragment.size:
@@ -123,12 +128,34 @@ class BadgeAudioHandler:
         logging.info(f"Found a keyword on badge {self.id}, started recording...")
 
     def _finish_recording(self):
-        # TODO: recording transmission
         duration = (len(self.recording_buffer)/2)/16000
         self.db.register_activation(self.id, Wakeword.Здравствуйте, duration)
         logging.info(
             f"Finished a recording on badge {self.id}, wakeword: {0}, duration of speech {duration}")
-        self._reset_recording()
+        with tempfile.TemporaryFile() as fp:
+
+            with wave.open(fp) as temp_wav_file:
+                temp_wav_file.setnchannels(1)
+                temp_wav_file.setsampwidth(2)
+                temp_wav_file.setframerate(16000)
+                temp_wav_file.writeframesraw(self.recording_buffer)
+
+            try:
+                data = fp.read()
+                headers = {
+                    'accept': 'application/json',
+                }
+                files = {
+                    'file': ('decoder-test.wav', data, 'audio/wav', {'Expires': '0'})
+                }
+                response = requests.post(self.config.sr_url, headers=headers, files=files)
+            except urllib3.exceptions.HTTPError as e:
+                logging.error(f"Can't send audiofragment to ASR with following exception: {e}")
+                logging.error(f"Traceback:")
+                logging.error(traceback.format_exc())
+
+            finally:
+                self._reset_recording()
 
     def _reset_recording(self):
         self.recording_buffer = b""

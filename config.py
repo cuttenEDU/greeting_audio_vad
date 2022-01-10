@@ -3,7 +3,7 @@ import yaml
 
 class Config():
     CONFIG_KEYS = ["window_duration", "sample_rate", "n_fft", "win_length", "hop_length", "n_mels", "certainty_thresh",
-                   "certainty_detects", "certainty_window", "vad_release", "model_path", "db_host","db_port"]
+                   "certainty_detects", "certainty_window", "vad_release", "model_path", "db_host","db_port", "sr_url"]
 
     def __init__(self, path="config.yml"):
         self.path = path
