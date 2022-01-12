@@ -30,7 +30,7 @@ class BadgeAudioHandler:
 
 
         self.vad_release_samples = config.sample_rate * config.vad_release
-        self.activation_release_samples = config.sample_rate * 2
+        self.activation_release_samples = config.sample_rate * 20
 
         self.recording = False
 
@@ -81,21 +81,21 @@ class BadgeAudioHandler:
                 self.samples_since_vad = 0
 
                 result = self._infer_window()
-                #logging.debug(f"Inferred to {result}")
+                logging.info(f"Inferred to {result}")
                 if result > self.config.certainty_thresh:
+                    if not self.recording:
+                        # if self.recording:
+                        #     if self.samples_since_activation > self.activation_release_samples:
+                        #         self._finish_recording()
 
-                    if self.recording:
-                        if self.samples_since_activation > self.activation_release_samples:
-                            self._finish_recording()
+                        self.detect_count += 1
 
-                    self.detect_count += 1
-
-                    if self.detect_count == 1:
-                        self.recording_buffer = self.window.copy().tobytes()
-                    elif self.detect_count == self.config.certainty_detects:
-                        self._start_recording()
-                    else:
-                        self._append_rec_buffer(chunk)
+                        if self.detect_count == 1:
+                            self.recording_buffer = self.window.copy().tobytes()
+                        elif self.detect_count == self.config.certainty_detects:
+                            self._start_recording()
+                        else:
+                            self._append_rec_buffer(chunk)
 
                 else:
                     if self.detect_count > 0:
@@ -132,23 +132,21 @@ class BadgeAudioHandler:
         self.db.register_activation(self.id, Wakeword.Здравствуйте, duration)
         logging.info(
             f"Finished a recording on badge {self.id}, wakeword: {0}, duration of speech {duration}")
-        with tempfile.TemporaryFile() as fp:
+        # with open("/wav/test.wav","wb") as fp:
 
-            with wave.open(fp) as temp_wav_file:
-                temp_wav_file.setnchannels(1)
-                temp_wav_file.setsampwidth(2)
-                temp_wav_file.setframerate(16000)
-                temp_wav_file.writeframesraw(self.recording_buffer)
+        with wave.open("/wav/test.wav","wb") as temp_wav_file:
+            temp_wav_file.setnchannels(1)
+            temp_wav_file.setsampwidth(2)
+            temp_wav_file.setframerate(16000)
+            temp_wav_file.writeframesraw(self.recording_buffer)
 
+        with open("/wav/test.wav","rb") as fp:
             try:
-                data = fp.read()
-                headers = {
-                    'accept': 'application/json',
-                }
                 files = {
-                    'file': ('decoder-test.wav', data, 'audio/wav', {'Expires': '0'})
+                    'file': fp
                 }
-                response = requests.post(self.config.sr_url, headers=headers, files=files)
+                response = requests.post(self.config.sr_url, files=files,data={"item":self.id})
+                logging.info(f"Sent audiofragment, got status: {response.status_code}")
             except urllib3.exceptions.HTTPError as e:
                 logging.error(f"Can't send audiofragment to ASR with following exception: {e}")
                 logging.error(f"Traceback:")

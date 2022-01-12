@@ -100,5 +100,5 @@ def main(fragments_queue: Queue, active_badges: dict):
     async def pong():
         return "pong"
 
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0",port=8020, log_level="info")
 

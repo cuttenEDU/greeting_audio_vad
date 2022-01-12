@@ -13,9 +13,9 @@ certainty_window: 0
 
 vad_release: 5
 
-model_path: "weights/happy98/model.pt"
+model_path: "weights/model_greeting100/model.pt"
 
-db_host: "localhost"
+db_host: "51.250.20.15"
 db_port: 5432
 
-sr_url: 'http://127.0.0.1:8000/asrupload'
+sr_url: 'http://51.250.20.15:3030/asrupload'

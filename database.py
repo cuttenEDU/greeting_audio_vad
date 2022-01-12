@@ -51,7 +51,7 @@ class BadgesDB(Singleton):
 
     def __init__(self, user:str,password:str, host:str, port:int):
         try:
-            self.conn = psycopg2.connect(dbname="audio",user=user,password=password,host=host,port=port)
+            self.conn = psycopg2.connect(dbname="vad",user=user,password=password,host=host,port=port)
             self.cursor = self.conn.cursor()
             logging.info("Successfully connected to the database!")
         except Exception as e:

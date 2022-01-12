@@ -1,0 +1,11 @@
+version: '3.3'
+services:
+  vadserver:
+    image: "vadserver"
+    restart: always
+    ports:
+      - '8020:8020'
+    volumes:
+      - type: bind
+        source: /home/admin/wav
+        target: /wav
