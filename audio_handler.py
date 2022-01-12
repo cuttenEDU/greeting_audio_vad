@@ -83,7 +83,9 @@ class BadgeAudioHandler:
                 result = self._infer_window()
                 logging.info(f"Inferred to {result}")
                 if result > self.config.certainty_thresh:
+                    logging.info(f"{self.recording=}")
                     if not self.recording:
+                        logging.info(f"Probable greeting?")
                         # if self.recording:
                         #     if self.samples_since_activation > self.activation_release_samples:
                         #         self._finish_recording()
@@ -152,12 +154,12 @@ class BadgeAudioHandler:
                 logging.error(f"Traceback:")
                 logging.error(traceback.format_exc())
 
-            finally:
-                self._reset_recording()
+        self._reset_recording()
 
     def _reset_recording(self):
         self.recording_buffer = b""
         self.recording = False
+        self.detect_count = 0
 
     def __del__(self):
         if len(self.recording_buffer) > 0:
