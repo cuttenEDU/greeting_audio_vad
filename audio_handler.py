@@ -15,7 +15,7 @@ import requests
 import tempfile
 import logging
 import traceback
-
+import os
 class BadgeAudioHandler:
     def __init__(self, db: BadgesDB, badge_id: str, config, model: BCResNet, device: torch.device):
         self.db = db
@@ -58,55 +58,63 @@ class BadgeAudioHandler:
         )
 
     def process_audiofragment(self, fragment: np.ndarray):
-        i = 0
-        fragment = fragment[0]
-        while i < fragment.size:
-            chunk = fragment[i:i + self.chunk_size]
+        logging.info(f"Got fragment on badge {self.id}")
+        try:
+            i = 0
+            fragment = fragment[0]
 
-            self._roll_window(chunk)
+            while i < fragment.size:
+                chunk = fragment[i:i + self.chunk_size]
 
-            chunk_len = len(chunk)
+                self._roll_window(chunk)
 
-            self.samples_since_vad += chunk_len
-            self.samples_since_activation += chunk_len
+                chunk_len = len(chunk)
 
-            if self.recording:
-                self._append_rec_buffer(chunk)
-                if self.samples_since_vad > self.vad_release_samples:
-                    self._finish_recording()
+                self.samples_since_vad += chunk_len
+                self.samples_since_activation += chunk_len
 
-            #logging.debug(f"Checking fragment at {i}, samples since VAD: {self.samples_since_vad}, release: {self.vad_release_samples}, recording: {self.recording}")
-            if is_voice(self.window.tobytes(), self.config.sample_rate):
-                #logging.debug("Found voice")
-                self.samples_since_vad = 0
+                if self.recording:
+                    self._append_rec_buffer(chunk)
+                    if self.samples_since_vad > self.vad_release_samples:
+                        self._finish_recording()
 
-                result = self._infer_window()
-                logging.info(f"Inferred to {result}")
-                if result > self.config.certainty_thresh:
-                    logging.info(f"{self.recording=}")
-                    if not self.recording:
-                        logging.info(f"Probable greeting?")
-                        # if self.recording:
-                        #     if self.samples_since_activation > self.activation_release_samples:
-                        #         self._finish_recording()
+                #logging.debug(f"Checking fragment at {i}, samples since VAD: {self.samples_since_vad}, release: {self.vad_release_samples}, recording: {self.recording}")
+                if is_voice(self.window.tobytes(), self.config.sample_rate):
+                    #logging.debug("Found voice")
+                    self.samples_since_vad = 0
 
-                        self.detect_count += 1
+                    result = self._infer_window()
+                    # logging.info(f"Inferred to {result}")
+                    if result > self.config.certainty_thresh:
+                        if not self.recording:
 
-                        if self.detect_count == 1:
-                            self.recording_buffer = self.window.copy().tobytes()
-                        elif self.detect_count == self.config.certainty_detects:
-                            self._start_recording()
-                        else:
-                            self._append_rec_buffer(chunk)
+                            logging.info(f"Probable greeting? result {result} on time {i/self.config.sample_rate}")
+                            # if self.recording:
+                            #     if self.samples_since_activation > self.activation_release_samples:
+                            #         self._finish_recording()
 
-                else:
-                    if self.detect_count > 0:
-                        if self.neg_samples_since_detect > self.config.certainty_window:
-                            self.neg_samples_since_detect += 1
-                        else:
-                            self.neg_samples_since_detect = 0
+                            self.detect_count += 1
 
-            i += self.chunk_size
+                            if self.detect_count == 1:
+                                self.recording_buffer = self.window.copy().tobytes()
+                            elif self.detect_count == self.config.certainty_detects:
+                                self._start_recording()
+                            else:
+                                self._append_rec_buffer(chunk)
+
+                    else:
+                        if self.detect_count > 0:
+                            if self.neg_samples_since_detect > self.config.certainty_window:
+                                self.neg_samples_since_detect += 1
+                            else:
+                                self.neg_samples_since_detect = 0
+
+                i += self.chunk_size
+            logging.info(f"Processed fragment on badge {self.id}")
+        except Exception as e:
+            logging.error(f"Can't process audiofragment on badge {self.id}, exception:")
+            logging.error(traceback.format_exc())
+
 
     def _roll_window(self, chunk):
         chunk_len = len(chunk)
@@ -136,13 +144,13 @@ class BadgeAudioHandler:
             f"Finished a recording on badge {self.id}, wakeword: {0}, duration of speech {duration}")
         # with open("/wav/test.wav","wb") as fp:
 
-        with wave.open("/wav/test.wav","wb") as temp_wav_file:
+        with wave.open(f"/wav/{self.id}.wav","wb") as temp_wav_file:
             temp_wav_file.setnchannels(1)
             temp_wav_file.setsampwidth(2)
             temp_wav_file.setframerate(16000)
             temp_wav_file.writeframesraw(self.recording_buffer)
 
-        with open("/wav/test.wav","rb") as fp:
+        with open(f"/wav/{self.id}.wav","rb") as fp:
             try:
                 files = {
                     'file': fp
@@ -155,6 +163,8 @@ class BadgeAudioHandler:
                 logging.error(traceback.format_exc())
 
         self._reset_recording()
+
+        os.remove(f"/wav/{self.id}.wav")
 
     def _reset_recording(self):
         self.recording_buffer = b""
