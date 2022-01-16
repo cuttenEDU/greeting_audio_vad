@@ -1,7 +1,7 @@
 import webrtcvad
 
 
-vad = webrtcvad.Vad(1)
+vad = webrtcvad.Vad(3)
 
 
 class Frame(object):

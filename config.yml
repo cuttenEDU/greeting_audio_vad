@@ -11,7 +11,7 @@ certainty_thresh: 0.7
 certainty_detects: 3
 certainty_window: 0
 
-vad_release: 15
+vad_release: 7
 
 model_path: "weights/model_greeting100/model.pt"
 

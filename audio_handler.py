@@ -16,6 +16,9 @@ import tempfile
 import logging
 import traceback
 import os
+
+from datetime import datetime
+
 class BadgeAudioHandler:
     def __init__(self, db: BadgesDB, badge_id: str, config, model: BCResNet, device: torch.device):
         self.db = db
@@ -38,6 +41,7 @@ class BadgeAudioHandler:
 
         self.recording_buffer = b""
 
+
         self.model = model
         self.device = device
         self.spectrogrammer = torch.nn.Sequential(
@@ -57,8 +61,14 @@ class BadgeAudioHandler:
 
         )
 
-    def process_audiofragment(self, fragment: np.ndarray):
-        logging.info(f"Got fragment on badge {self.id}")
+    def process_audiofragment(self, fragment: np.ndarray,filename:str):
+        logging.info(f"Starting processing fragment {filename} on badge {self.id}, duration {round(fragment.size/self.config.sample_rate,2)}")
+
+        vad_log_dirty = True
+        vad_log_start = -1
+
+        fragment_start_time = self.parse_time(filename)
+
         try:
             i = 0
             fragment = fragment[0]
@@ -76,11 +86,16 @@ class BadgeAudioHandler:
                 if self.recording:
                     self._append_rec_buffer(chunk)
                     if self.samples_since_vad > self.vad_release_samples:
-                        self._finish_recording()
+                        self._finish_recording(fragment_start_time + (i//self.config.sample_rate))
 
                 #logging.debug(f"Checking fragment at {i}, samples since VAD: {self.samples_since_vad}, release: {self.vad_release_samples}, recording: {self.recording}")
                 if is_voice(self.window.tobytes(), self.config.sample_rate):
-                    #logging.debug("Found voice")
+
+                    if vad_log_dirty:
+                        #logging.info(f"Found voice on time {i/self.config.sample_rate}")
+                        vad_log_start = i/self.config.sample_rate
+                        vad_log_dirty = False
+
                     self.samples_since_vad = 0
 
                     result = self._infer_window()
@@ -108,7 +123,10 @@ class BadgeAudioHandler:
                                 self.neg_samples_since_detect += 1
                             else:
                                 self.neg_samples_since_detect = 0
-
+                else:
+                    if not vad_log_dirty:
+                        logging.info(f"Voice fragment from {vad_log_start} to {i/self.config.sample_rate}")
+                    vad_log_dirty = True
                 i += self.chunk_size
             logging.info(f"Processed fragment on badge {self.id}")
         except Exception as e:
@@ -137,12 +155,12 @@ class BadgeAudioHandler:
         self.samples_since_activation = 0
         logging.info(f"Found a keyword on badge {self.id}, started recording...")
 
-    def _finish_recording(self):
+    def _finish_recording(self,start_time):
         duration = (len(self.recording_buffer)/2)/16000
         self.db.register_activation(self.id, Wakeword.Здравствуйте, duration)
         logging.info(
-            f"Finished a recording on badge {self.id}, wakeword: {0}, duration of speech {duration}")
-        # with open("/wav/test.wav","wb") as fp:
+            f"Finished a recording on badge {self.id}, wakeword: {0}, duration of speech: {duration}, timestamp: {start_time}")
+
 
         with wave.open(f"/wav/{self.id}.wav","wb") as temp_wav_file:
             temp_wav_file.setnchannels(1)
@@ -155,7 +173,7 @@ class BadgeAudioHandler:
                 files = {
                     'file': fp
                 }
-                response = requests.post(self.config.sr_url, files=files,data={"item":self.id})
+                response = requests.post(self.config.sr_url, files=files,data={"badge_id":self.id,"time":start_time})
                 logging.info(f"Sent audiofragment, got status: {response.status_code}")
             except urllib3.exceptions.HTTPError as e:
                 logging.error(f"Can't send audiofragment to ASR with following exception: {e}")
@@ -173,5 +191,12 @@ class BadgeAudioHandler:
 
     def __del__(self):
         if len(self.recording_buffer) > 0:
-            self._finish_recording()
+            self._finish_recording(datetime.now().timestamp())
 
+    @staticmethod
+    def parse_time(recording_name: str):
+        datetime_str = recording_name.replace(".WAV","")
+        try:
+            return int(datetime.strptime(datetime_str, '%Y%m%d%H%M%S').timestamp())
+        except ValueError:
+            return int(datetime.now().timestamp())

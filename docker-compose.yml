@@ -9,3 +9,6 @@ services:
       - type: bind
         source: /home/admin/wav
         target: /wav
+      - type: bind
+        source: /home/admin/VAD_logs
+        target: /logs
