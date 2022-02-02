@@ -3,14 +3,13 @@ import wave
 import urllib3.exceptions
 
 from database import BadgesDB,Wakeword
-from vad import is_voice
+from vad import OnnxVADRuntime
 from model import BCResNet
 
 import numpy as np
 import torchaudio
 import torch
 import requests
-
 
 import tempfile
 import logging
@@ -24,7 +23,7 @@ class BadgeAudioHandler:
         self.db = db
         self.id = badge_id
         self.config = config
-        self.chunk_size = int((config.sample_rate * config.window_duration) // 10)
+        self.chunk_size = int((config.sample_rate * config.window_duration) // 7)
 
         self.detect_count = 0
         self.samples_since_vad = 0
@@ -44,6 +43,11 @@ class BadgeAudioHandler:
 
         self.model = model
         self.device = device
+
+        self.vad = OnnxVADRuntime(config.vad_model_path)
+
+        self._reset_vad_state()
+
         self.spectrogrammer = torch.nn.Sequential(
             torchaudio.transforms.MelSpectrogram(
                 sample_rate=config.sample_rate,
@@ -88,8 +92,10 @@ class BadgeAudioHandler:
                     if self.samples_since_vad > self.vad_release_samples:
                         self._finish_recording(fragment_start_time + (i//self.config.sample_rate))
 
+                vad_res, self._h,self._c = self.vad(chunk.astype("float32"),self._h,self._c)
+
                 #logging.debug(f"Checking fragment at {i}, samples since VAD: {self.samples_since_vad}, release: {self.vad_release_samples}, recording: {self.recording}")
-                if is_voice(self.window.tobytes(), self.config.sample_rate):
+                if vad_res > self.config.vad_threshold:
 
                     if vad_log_dirty:
                         #logging.info(f"Found voice on time {i/self.config.sample_rate}")
@@ -133,6 +139,10 @@ class BadgeAudioHandler:
             logging.error(f"Can't process audiofragment on badge {self.id}, exception:")
             logging.error(traceback.format_exc())
 
+
+    def _reset_vad_state(self):
+        self._h = np.zeros((2, 1, 64)).astype('float32')
+        self._c = np.zeros((2, 1, 64)).astype('float32')
 
     def _roll_window(self, chunk):
         chunk_len = len(chunk)

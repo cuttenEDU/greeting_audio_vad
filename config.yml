@@ -12,6 +12,8 @@ certainty_detects: 3
 certainty_window: 0
 
 vad_release: 7
+vad_threshold: 0.5
+vad_model_path: "weights/vad_model/silero_vad.onnx"
 
 model_path: "weights/model_greeting100/model.pt"
 

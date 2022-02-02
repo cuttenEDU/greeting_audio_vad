@@ -1,34 +1,37 @@
-import webrtcvad
+import numpy as np
+import torch
+import torchaudio
+import onnxruntime
 
+from singleton import Singleton
 
-vad = webrtcvad.Vad(3)
+class OnnxVADRuntime(Singleton):
+    _instance = None
 
+    def __init__(self, model_path = "weights/vad_onnx/silero_vad.onnx"):
+        self.session = onnxruntime.InferenceSession(model_path)
+        self.session.intra_op_num_threads = 1
+        self.session.inter_op_num_threads = 2
 
-class Frame(object):
-    def __init__(self, bytes, timestamp, duration):
-        self.bytes = bytes
-        self.timestamp = timestamp
-        self.duration = duration
+    def __call__(self, x, h, c):
+        if x.ndim == 1:
+            x = np.expand_dims(x,0)
+        if x.ndim > 2:
+            raise ValueError(f"Too many dimensions for input audio chunk {x.dim()}")
 
+        if x.shape[0] > 1:
+            raise ValueError("Onnx model does not support batching")
 
-def frame_generator(frame_duration_ms, audio, sample_rate):
-    n = int(sample_rate * (frame_duration_ms / 1000.0) * 2)
-    offset = 0
-    timestamp = 0.0
-    duration = (float(n) / sample_rate) / 2.0
-    while offset + n < len(audio):
-        yield Frame(audio[offset:offset + n], timestamp, duration)
-        timestamp += duration
-        offset += n
+        if h.shape != (2, 1, 64):
+            raise ValueError("Wrong shape for H state array")
 
+        if c.shape != (2, 1, 64):
+            raise ValueError("Wrong shape for C state array")
 
-def vad_collector(sample_rate, frames):
-    for frame in frames:
-        is_speech = vad.is_speech(frame.bytes, sample_rate)
-        if is_speech:
-            return True
+        ort_inputs = {'input': x, 'h0': h, 'c0': c}
+        ort_outs = self.session.run(None, ort_inputs)
+        out, h, c = ort_outs
 
-def is_voice(audiodata:bytes,rate:int):
-    frames = frame_generator(10, audiodata, rate)
-    frames = list(frames)
-    return vad_collector(rate,frames)
+        out = torch.tensor(out).squeeze(2)[:, 1].item()  # make output type match JIT analog
+
+        return out, h, c

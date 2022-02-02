@@ -7,6 +7,8 @@ import os
 from enum import Enum
 
 from config import Config
+from singleton import Singleton
+
 
 class Wakeword(Enum):
     Здравствуйте = 0
@@ -39,12 +41,7 @@ class BadgeAlreadyDisabled(Exception):
 
 db = None
 
-class Singleton(object):
-    _instance = None
-    def __new__(class_, *args, **kwargs):
-        if not isinstance(class_._instance, class_):
-            class_._instance = object.__new__(class_)
-        return class_._instance
+
 
 class BadgesDB(Singleton):
     _instance = None
