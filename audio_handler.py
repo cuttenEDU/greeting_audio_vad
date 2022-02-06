@@ -177,18 +177,20 @@ class BadgeAudioHandler:
             temp_wav_file.setsampwidth(2)
             temp_wav_file.setframerate(16000)
             temp_wav_file.writeframesraw(self.recording_buffer)
-
-        with open(f"/wav/{self.id}.wav","rb") as fp:
-            try:
-                files = {
-                    'file': fp
-                }
-                response = requests.post(self.config.sr_url, files=files,data={"badge_id":self.id,"time":start_time})
-                logging.info(f"Sent audiofragment, got status: {response.status_code}")
-            except urllib3.exceptions.HTTPError as e:
-                logging.error(f"Can't send audiofragment to ASR with following exception: {e}")
-                logging.error(f"Traceback:")
-                logging.error(traceback.format_exc())
+        if self.config.sr_url != "debug":
+            with open(f"/wav/{self.id}.wav","rb") as fp:
+                try:
+                    files = {
+                        'file': fp
+                    }
+                    response = requests.post(self.config.sr_url, files=files,data={"badge_id":self.id,"time":start_time})
+                    logging.info(f"Sent audiofragment, got status: {response.status_code}")
+                except urllib3.exceptions.HTTPError as e:
+                    logging.error(f"Can't send audiofragment to ASR with following exception: {e}")
+                    logging.error(f"Traceback:")
+                    logging.error(traceback.format_exc())
+        else:
+            logging.info("DEBUG MODE, skipping fragment transmission")
 
         self._reset_recording()
 

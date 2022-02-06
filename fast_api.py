@@ -13,6 +13,7 @@ import database
 from audio_handler import BadgeAudioHandler
 from model import BCResNet
 from config import Config
+from utils import convert_size
 
 
 def init_model(config: Config) -> (BCResNet, torch.device):
@@ -52,13 +53,18 @@ def main(fragments_queue: Queue, active_badges: dict):
     # FastAPI
     app = FastAPI()
 
+    active_stations = ["test_g"]
+
     class BadgeInfo(BaseModel):
         BadgeID: str = ""
 
     class FragmentInfo(BaseModel):
         filename: str
-        duration: str
+        duration: float
         size: int
+
+    class StationInfo(BaseModel):
+        StationID: str = ""
 
     @app.post("/enable", status_code=201)
     async def enable_badge(badge: BadgeInfo):
@@ -93,7 +99,7 @@ def main(fragments_queue: Queue, active_badges: dict):
             wav, sr = torchaudio.load(file, normalize=False)
             wav = wav.numpy()
             assert sr == config.sample_rate
-            logging.info(f"Recieved fragment {upload_file.filename} from badge {BadgeID}, duration: {round(wav.size / sr, 2)}")
+            logging.info(f"Recieved fragment {upload_file.filename} from badge {BadgeID}, duration: {round(wav.size / sr, 2)} seconds")
             fragments_queue.put((BadgeID, wav, upload_file.filename))
         else:
             raise HTTPException(status_code=404, detail=f'Badge "{BadgeID}" is not registered')
@@ -102,10 +108,29 @@ def main(fragments_queue: Queue, active_badges: dict):
     async def pong():
         return "pong"
 
-    @app.get("/announce_upload", status_code=200)
-    async def announce_upload(fragment_info: FragmentInfo):
-        logging.info(
-            f"Got upload announcement of recording fragment {fragment_info.filename}, size: {fragment_info.size}, "
-            f"duration: {fragment_info.duration}")
+    @app.post("/announce_upload/{BadgeID}", status_code=200)
+    async def announce_upload(BadgeID:str, fragment_info: FragmentInfo):
+        if db.badge_exists(BadgeID):
+            logging.info(
+                f"Got upload announcement from badge {BadgeID} of recording fragment {fragment_info.filename}, "
+                f"size: {convert_size(fragment_info.size)}, duration: {fragment_info.duration} seconds")
+
+    @app.post("/alive/{StationID}",status_code=200)
+    async def alive(StationID:str):
+        if StationID in active_stations:
+            logging.info(f"Got ALIVE message from station {StationID}")
+        else:
+            raise HTTPException(status_code=404,detail=f"Station {StationID} is not found!")
+
+    @app.post("/poweron/{StationID}",status_code=200)
+    async def alive(StationID:str):
+        if StationID in active_stations:
+            logging.info(f"Got POWER-ON from station {StationID}")
+        else:
+            raise HTTPException(status_code=404,detail=f"Station {StationID} is not found!")
+
+
+
+
 
     uvicorn.run(app, host="0.0.0.0", port=8020, log_level="info")
